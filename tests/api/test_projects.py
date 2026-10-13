@@ -1,16 +1,19 @@
 """Tests for the project endpoints (``/projects``)."""
 
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.models import Document, Project, ProjectMember, ProjectRole
-from app.services import projects as projects_service
+from app.storage import LocalStorage, get_storage
 
 from .conftest import AuthUser
 
@@ -293,59 +296,114 @@ def test_update_invalid_input_is_422(client: TestClient, alice: AuthUser) -> Non
 # ---------------------------------------------------------------- DELETE /projects/{id}
 
 
+PDF_BYTES = b"%PDF-1.7\n" + b"%" * 64
+
+
+def upload_pdf(client: TestClient, project_id: int, user: AuthUser, name: str) -> str:
+    response = client.post(
+        f"/projects/{project_id}/documents",
+        files=[("files", (name, PDF_BYTES, "application/pdf"))],
+        headers=user.headers,
+    )
+    assert response.status_code == 201, response.text
+    return str(response.json()[0]["id"])
+
+
+def stored_files(settings: Settings) -> set[Path]:
+    root = settings.storage_dir
+    return {p for p in root.rglob("*") if p.is_file()} if root.exists() else set()
+
+
+class RecordingStorage(LocalStorage):
+    """Checks that files are deleted only after the project's rows were committed away."""
+
+    def __init__(self, root: Path, bind: Any, project_id: int) -> None:
+        super().__init__(root)
+        self.bind = bind
+        self.project_id = project_id
+        self.deleted: list[str] = []
+
+    def delete(self, key: str) -> None:
+        with Session(self.bind) as check:
+            assert check.get(Project, self.project_id) is None
+        self.deleted.append(key)
+        super().delete(key)
+
+
 def test_owner_deletes_project_with_members_documents_and_files(
     client: TestClient,
+    app: FastAPI,
+    settings: Settings,
     alice: AuthUser,
     bob: AuthUser,
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = create_project(client, alice)
+    other = create_project(client, alice, name="Other")
     add_member(db_session, project["id"], bob)
-    keys = {add_document(db_session, project["id"], alice, f"{n}.pdf").storage_key for n in "ab"}
-    removed: list[str] = []
+    upload_pdf(client, project["id"], alice, "a.pdf")
+    upload_pdf(client, project["id"], bob, "b.pdf")
+    upload_pdf(client, other["id"], alice, "keep.pdf")
+    project_files = {p for p in stored_files(settings) if p.parent.name == str(project["id"])}
+    assert len(project_files) == 2
+    other_files = stored_files(settings) - project_files
 
-    def fake_remove(storage_keys: Sequence[str]) -> None:
-        # Called after the commit: the rows are already gone.
-        with Session(db_session.get_bind()) as check:
-            assert check.get(Project, project["id"]) is None
-        removed.extend(storage_keys)
-
-    monkeypatch.setattr(
-        projects_service.delete_project, "__kwdefaults__", {"remove_files": fake_remove}
-    )
-
+    storage = RecordingStorage(settings.storage_dir, db_session.get_bind(), project["id"])
+    app.dependency_overrides[get_storage] = lambda: storage
     response = client.delete(f"/projects/{project['id']}", headers=alice.headers)
 
     assert response.status_code == 204
     assert response.content == b""
-    assert set(removed) == keys
+    assert len(storage.deleted) == 2
+    # The files are gone from storage; the other project's file is untouched.
+    assert stored_files(settings) == other_files
     db_session.expire_all()
     assert db_session.get(Project, project["id"]) is None
-    assert db_session.scalar(select(func.count()).select_from(ProjectMember)) == 0
-    assert db_session.scalar(select(func.count()).select_from(Document)) == 0
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(ProjectMember)
+            .where(ProjectMember.project_id == project["id"])
+        )
+        == 0
+    )
+    assert (
+        db_session.scalar(
+            select(func.count()).select_from(Document).where(Document.project_id == project["id"])
+        )
+        == 0
+    )
+    assert [p["id"] for p in client.get("/projects", headers=alice.headers).json()] == [other["id"]]
+    assert client.get("/projects", headers=bob.headers).json() == []
     for user in (alice, bob):
-        assert client.get("/projects", headers=user.headers).json() == []
         info = client.get(f"/projects/{project['id']}/info", headers=user.headers)
         assert info.status_code == 404
 
 
 def test_file_removal_failure_does_not_fail_the_request(
-    client: TestClient, alice: AuthUser, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    app: FastAPI,
+    settings: Settings,
+    alice: AuthUser,
+    db_session: Session,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     project = create_project(client, alice)
-    add_document(db_session, project["id"], alice, "a.pdf")
+    upload_pdf(client, project["id"], alice, "a.pdf")
+    upload_pdf(client, project["id"], alice, "b.pdf")
+    attempted: list[str] = []
 
-    def broken_remove(storage_keys: Sequence[str]) -> None:
-        raise OSError("disk on fire")
+    class BrokenStorage(LocalStorage):
+        def delete(self, key: str) -> None:
+            attempted.append(key)
+            raise OSError("disk on fire")
 
-    monkeypatch.setattr(
-        projects_service.delete_project, "__kwdefaults__", {"remove_files": broken_remove}
-    )
-
+    app.dependency_overrides[get_storage] = lambda: BrokenStorage(settings.storage_dir)
     response = client.delete(f"/projects/{project['id']}", headers=alice.headers)
 
     assert response.status_code == 204
+    assert len(attempted) == 2  # every file is attempted even after a failure
+    assert "orphaned" in caplog.text
     db_session.expire_all()
     assert db_session.get(Project, project["id"]) is None
 

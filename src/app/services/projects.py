@@ -7,7 +7,7 @@ described there.
 """
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import case, select
@@ -15,11 +15,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import Project, ProjectMember, ProjectRole, User
 from app.services.access import Permission, ProjectAccess
+from app.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
-
-StoredFileRemover = Callable[[Sequence[str]], None]
-"""Deletes stored files by storage key; called only after the database commit succeeded."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,40 +82,30 @@ def update_project(
     return ProjectView(project, grant.role, _load_members(session, project_id))
 
 
-def remove_stored_files(storage_keys: Sequence[str]) -> None:
-    """Delete the stored files of a deleted project's documents.
+def remove_stored_files(storage: StorageBackend, storage_keys: Sequence[str]) -> None:
+    """Delete the stored files of a deleted project's documents from ``storage``.
 
-    TODO(storage): there is no storage backend on this branch yet (``app.storage`` is being
-    built in parallel). Once it exists, delete each key through the configured
-    ``StorageBackend`` here (or pass a remover bound to it to :func:`delete_project`). Until
-    then the keys are only logged.
+    Called only after the database commit succeeded. Every key is attempted; a key that can't
+    be deleted is logged (the file is left orphaned) and never raises.
     """
-    if storage_keys:
-        logger.warning(
-            "No storage backend configured; %d stored file(s) not deleted: %s",
-            len(storage_keys),
-            ", ".join(storage_keys),
-        )
+    for key in storage_keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            logger.exception("Could not delete stored file %s; it is left orphaned", key)
 
 
 def delete_project(
-    session: Session,
-    user: User,
-    project_id: int,
-    *,
-    remove_files: StoredFileRemover = remove_stored_files,
+    session: Session, user: User, project_id: int, *, storage: StorageBackend
 ) -> None:
     """Delete the project with its members and documents (owner only), then its stored files.
 
-    The files are removed only after the database commit succeeded. A failure while removing
-    them is logged and does not fail the deletion (the rows are already gone).
+    The files are removed from ``storage`` only after the database commit succeeded. A failure
+    while removing them is logged and does not fail the deletion (the rows are already gone).
     """
     grant = ProjectAccess(session).require(project_id, user, Permission.DELETE_PROJECT)
     project = grant.project
     storage_keys = [document.storage_key for document in project.documents]
     session.delete(project)
     session.commit()
-    try:
-        remove_files(storage_keys)
-    except Exception:
-        logger.exception("Failed to delete the stored files of deleted project %d", project_id)
+    remove_stored_files(storage, storage_keys)
