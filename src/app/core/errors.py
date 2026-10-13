@@ -44,3 +44,31 @@ class PermissionDenied(AppError):  # noqa: N818 (name given by the task list)
 
     code = "PERMISSION_DENIED"
     default_detail = "You do not have permission to perform this action."
+
+
+class ConflictError(AppError):
+    """The request conflicts with the current state of a resource (``409``)."""
+
+    code = "CONFLICT"
+    default_detail = "The request conflicts with the current state of the resource."
+
+
+class LoginAlreadyExists(ConflictError):  # noqa: N818 (reads better as a domain event)
+    """Registration with a login that is already taken, compared case-insensitively (``409``)."""
+
+    code = "LOGIN_ALREADY_EXISTS"
+    default_detail = "This login is already taken."
+
+
+class AuthenticationError(AppError):
+    """The request could not be authenticated (``401``)."""
+
+    code = "NOT_AUTHENTICATED"
+    default_detail = "Not authenticated."
+
+
+class InvalidCredentials(AuthenticationError):  # noqa: N818 (reads better as a domain event)
+    """Wrong login or password; the detail never says which one (``401``)."""
+
+    code = "INVALID_CREDENTIALS"
+    default_detail = "Incorrect login or password."
