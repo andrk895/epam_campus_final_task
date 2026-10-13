@@ -17,3 +17,7 @@
 - 2026-10-13T17:45:19+02:00 User: parallelize. Wave A started: T1.4, T2.1, T3.1 in worktrees (../epam_campus_final_task-worktrees/<T>, private test DBs pm_test_t14/t21/t31); T1.3 continues in main checkout.
 - 2026-10-13T17:47:32+02:00 T1.3 iter 1 programmer done (82 tests; pm_app migrated to 0001) → reviewer
 - 2026-10-13T17:51:00+02:00 T1.3, T2.1, T3.1 APPROVED. User needs endpoints fast for a presentation: speed mode — api-a (auth+projects) and api-b (storage/sharing/docs) in worktrees, programmers commit per task on wip branches, batch review before merge. Live :8000 server now runs api-a worktree.
+- 2026-10-13T17:55:49+02:00 T1.4 APPROVED, rebased (README conflict resolved), merged + pushed. api-a finished (T2.2–T2.4, T3.2–T3.6) → batch review
+- 2026-10-13T17:59:17+02:00 api-a batch APPROVED; rebased onto main, 322 passed, merged + pushed. Live server still runs from api-a worktree.
+- 2026-10-13T17:59:50+02:00 api-b finished (T4.1, T4.2, T5.1–T5.7); live server switched to api-b worktree → 15/15 endpoints live, smoke-tested invite/upload/list/download. api-b follow-up: wire storage into project delete, then batch review.
+- 2026-10-13T18:08:20+02:00 api-b batch APPROVED; merged into main (7 add/add conflicts resolved with api-b side, verified identical base), 443 passed, pushed. All 15 required endpoints on main.
