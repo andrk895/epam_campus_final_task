@@ -1,11 +1,12 @@
 """Tests for the ORM models (``app.models``) and the constraints they create in PostgreSQL.
 
-The tables are created with ``Base.metadata.create_all`` in a fresh, uniquely named schema of
-the test database (``TEST_DATABASE_URL``, by default the local ``pm_test``). Every test starts
-with empty tables, and the schema is dropped when the module is done.
+Unlike most tests, these don't run inside a rolled-back transaction: they commit for real (so
+that, e.g., ``now()`` advances between transactions and ``updated_at`` changes). The tables are
+created with ``Base.metadata.create_all`` in a fresh schema of the test database for this module
+(see ``tests/database.py``); every test starts with empty tables, and the schema is dropped when
+the module is done.
 """
 
-import os
 import uuid
 from collections.abc import Iterator
 from datetime import datetime
@@ -13,7 +14,7 @@ from typing import Final
 
 import psycopg
 import pytest
-from sqlalchemy import Engine, create_engine, delete, func, inspect, select, text
+from sqlalchemy import Engine, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,35 +23,26 @@ from app.models import Document, Project, ProjectMember, ProjectRole, User
 from app.models.document import STORAGE_KEY_UNIQUE_CONSTRAINT
 from app.models.project import MEMBERSHIP_PRIMARY_KEY, SINGLE_OWNER_INDEX
 from app.models.user import LOGIN_UNIQUE_INDEX
-
-TEST_DATABASE_URL: Final = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/pm_test"
-)
+from tests.database import temporary_schema, unique_schema_name
+from tests.factories import ProjectFactory, UserFactory
 
 TABLES: Final = ("users", "projects", "project_members", "documents")
 
 
 @pytest.fixture(scope="module")
-def engine() -> Iterator[Engine]:
+def engine(test_database_url: str) -> Iterator[Engine]:
     """An engine whose connections use a fresh schema holding the model tables."""
-    schema = f"test_models_{uuid.uuid4().hex}"
-    admin_engine = create_engine(TEST_DATABASE_URL)
-    with admin_engine.begin() as connection:
-        connection.execute(text(f"CREATE SCHEMA {schema}"))
-    engine = create_engine(TEST_DATABASE_URL, connect_args={"options": f"-csearch_path={schema}"})
-    try:
-        Base.metadata.create_all(engine)
+    with temporary_schema(test_database_url, unique_schema_name("test_models")) as engine:
         yield engine
-    finally:
-        engine.dispose()
-        with admin_engine.begin() as connection:
-            connection.execute(text(f"DROP SCHEMA {schema} CASCADE"))
-        admin_engine.dispose()
 
 
 @pytest.fixture
-def session(engine: Engine) -> Iterator[Session]:
-    """A session like the app's; all rows are removed after the test."""
+def db_session(engine: Engine) -> Iterator[Session]:
+    """A session like the app's that really commits; all rows are removed after the test.
+
+    Overrides the shared, rolled-back ``db_session`` (also for the ``create_user`` and
+    ``create_project`` factories used here).
+    """
     with create_session_factory(engine)() as session:
         yield session
     with engine.begin() as connection:
@@ -61,22 +53,6 @@ def constraint_name(error: IntegrityError) -> str | None:
     """The name of the PostgreSQL constraint or unique index that ``error`` violated."""
     assert isinstance(error.orig, psycopg.Error)
     return error.orig.diag.constraint_name
-
-
-def add_user(session: Session, login: str) -> User:
-    user = User(login=login, password_hash="not-a-real-hash")
-    session.add(user)
-    session.flush()
-    return user
-
-
-def add_project(session: Session, owner: User, name: str = "Apollo") -> Project:
-    """A project with its owner membership, as the project service will create it."""
-    project = Project(name=name, description="Moon landing", owner=owner)
-    project.members.append(ProjectMember(user=owner, role=ProjectRole.OWNER))
-    session.add(project)
-    session.flush()
-    return project
 
 
 def add_document(session: Session, project: Project, uploader: User) -> Document:
@@ -153,81 +129,99 @@ def test_schema_has_the_expected_keys_and_indexes(engine: Engine) -> None:
 # ---------------------------------------------------------------- users
 
 
-def test_user_gets_an_id_and_a_timezone_aware_created_at(session: Session) -> None:
-    user = add_user(session, "alice")
-    session.commit()
+def test_user_gets_an_id_and_a_timezone_aware_created_at(
+    db_session: Session,
+    create_user: UserFactory,
+) -> None:
+    user = create_user("alice")
+    db_session.commit()
 
     assert isinstance(user.id, int)
     assert isinstance(user.created_at, datetime)
     assert user.created_at.tzinfo is not None
 
 
-def test_duplicate_login_is_rejected(session: Session) -> None:
-    add_user(session, "alice")
+def test_duplicate_login_is_rejected(create_user: UserFactory) -> None:
+    create_user("alice")
 
     with pytest.raises(IntegrityError) as exc_info:
-        add_user(session, "alice")
+        create_user("alice")
 
     assert constraint_name(exc_info.value) == LOGIN_UNIQUE_INDEX
 
 
 @pytest.mark.parametrize("variant", ["Alice", "ALICE", "aLiCe"])
-def test_login_is_unique_case_insensitively(session: Session, variant: str) -> None:
-    add_user(session, "alice")
+def test_login_is_unique_case_insensitively(variant: str, create_user: UserFactory) -> None:
+    create_user("alice")
 
     with pytest.raises(IntegrityError) as exc_info:
-        add_user(session, variant)
+        create_user(variant)
 
     assert constraint_name(exc_info.value) == LOGIN_UNIQUE_INDEX
 
 
-def test_login_case_is_preserved_and_lookups_ignore_case(session: Session) -> None:
-    alice = add_user(session, "Alice")
-    add_user(session, "bob")
-    session.commit()
+def test_login_case_is_preserved_and_lookups_ignore_case(
+    db_session: Session,
+    create_user: UserFactory,
+) -> None:
+    alice = create_user("Alice")
+    create_user("bob")
+    db_session.commit()
 
-    found = session.execute(select(User).where(User.login_matches("aLICE"))).scalar_one()
+    found = db_session.execute(select(User).where(User.login_matches("aLICE"))).scalar_one()
 
     assert found is alice
     assert found.login == "Alice"
 
 
-def test_deleting_a_user_deletes_their_memberships(session: Session) -> None:
-    owner = add_user(session, "owner")
-    participant = add_user(session, "participant")
-    project = add_project(session, owner)
+def test_deleting_a_user_deletes_their_memberships(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    participant = create_user("participant")
+    project = create_project(owner)
     project.members.append(ProjectMember(user=participant, role=ProjectRole.PARTICIPANT))
-    session.commit()
+    db_session.commit()
 
-    session.execute(delete(User).where(User.id == participant.id))  # bypasses the ORM
-    session.commit()
-    session.expire_all()
+    db_session.execute(delete(User).where(User.id == participant.id))  # bypasses the ORM
+    db_session.commit()
+    db_session.expire_all()
 
     assert [member.user_id for member in project.members] == [owner.id]
 
 
-def test_a_user_who_owns_a_project_cannot_be_deleted(session: Session) -> None:
-    owner = add_user(session, "owner")
-    add_project(session, owner)
-    session.commit()
+def test_a_user_who_owns_a_project_cannot_be_deleted(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    create_project(owner)
+    db_session.commit()
 
-    session.delete(owner)
+    db_session.delete(owner)
     with pytest.raises(IntegrityError) as exc_info:
-        session.commit()
+        db_session.commit()
 
     assert constraint_name(exc_info.value) == "fk_projects_owner_id_users"
 
 
-def test_a_user_who_uploaded_a_document_cannot_be_deleted(session: Session) -> None:
-    owner = add_user(session, "owner")
-    uploader = add_user(session, "uploader")
-    project = add_project(session, owner)
+def test_a_user_who_uploaded_a_document_cannot_be_deleted(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    uploader = create_user("uploader")
+    project = create_project(owner)
     project.members.append(ProjectMember(user=uploader, role=ProjectRole.PARTICIPANT))
-    add_document(session, project, uploader)
-    session.commit()
+    add_document(db_session, project, uploader)
+    db_session.commit()
 
     with pytest.raises(IntegrityError) as exc_info:
-        session.execute(delete(User).where(User.id == uploader.id))
+        db_session.execute(delete(User).where(User.id == uploader.id))
 
     assert constraint_name(exc_info.value) == "fk_documents_uploaded_by_users"
 
@@ -235,14 +229,18 @@ def test_a_user_who_uploaded_a_document_cannot_be_deleted(session: Session) -> N
 # ---------------------------------------------------------------- projects and members
 
 
-def test_project_relationships_work_both_ways(session: Session) -> None:
-    owner = add_user(session, "owner")
-    participant = add_user(session, "participant")
-    project = add_project(session, owner)
+def test_project_relationships_work_both_ways(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    participant = create_user("participant")
+    project = create_project(owner)
     project.members.append(ProjectMember(user=participant, role=ProjectRole.PARTICIPANT))
-    document = add_document(session, project, participant)
-    session.commit()
-    session.expire_all()
+    document = add_document(db_session, project, participant)
+    db_session.commit()
+    db_session.expire_all()
 
     assert project.owner is owner
     assert owner.owned_projects == [project]
@@ -256,37 +254,49 @@ def test_project_relationships_work_both_ways(session: Session) -> None:
     assert document.uploader is participant
 
 
-def test_project_timestamps_are_set_and_updated_at_changes_on_update(session: Session) -> None:
-    project = add_project(session, add_user(session, "owner"))
-    session.commit()
+def test_project_timestamps_are_set_and_updated_at_changes_on_update(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    project = create_project(create_user("owner"))
+    db_session.commit()
     created_at, updated_at = project.created_at, project.updated_at
     assert created_at.tzinfo is not None
     assert updated_at == created_at
     assert project.members[0].added_at.tzinfo is not None
 
     project.name = "Artemis"
-    session.commit()
+    db_session.commit()
 
     assert project.created_at == created_at
     assert project.updated_at > updated_at
 
 
-def test_role_is_stored_as_its_value(session: Session) -> None:
-    add_project(session, add_user(session, "owner"))
-    session.commit()
+def test_role_is_stored_as_its_value(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    create_project(create_user("owner"))
+    db_session.commit()
 
-    stored = session.execute(text("SELECT role FROM project_members")).scalar_one()
+    stored = db_session.execute(text("SELECT role FROM project_members")).scalar_one()
 
     assert stored == "owner"
 
 
-def test_unknown_role_is_rejected_by_the_database(session: Session) -> None:
-    owner = add_user(session, "owner")
-    participant = add_user(session, "participant")
-    project = add_project(session, owner)
+def test_unknown_role_is_rejected_by_the_database(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    participant = create_user("participant")
+    project = create_project(owner)
 
     with pytest.raises(IntegrityError) as exc_info:
-        session.execute(
+        db_session.execute(
             text(
                 "INSERT INTO project_members (project_id, user_id, role) VALUES (:p, :u, 'admin')"
             ),
@@ -296,16 +306,20 @@ def test_unknown_role_is_rejected_by_the_database(session: Session) -> None:
     assert constraint_name(exc_info.value) == "ck_project_members_project_role"
 
 
-def test_a_user_can_be_a_member_of_a_project_only_once(session: Session) -> None:
-    owner = add_user(session, "owner")
-    participant = add_user(session, "participant")
-    project = add_project(session, owner)
-    session.add(ProjectMember(project=project, user=participant, role=ProjectRole.PARTICIPANT))
-    session.commit()
+def test_a_user_can_be_a_member_of_a_project_only_once(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    participant = create_user("participant")
+    project = create_project(owner)
+    db_session.add(ProjectMember(project=project, user=participant, role=ProjectRole.PARTICIPANT))
+    db_session.commit()
 
     # A second row for the same pair, inserted without the ORM's identity map noticing.
     with pytest.raises(IntegrityError) as exc_info:
-        session.execute(
+        db_session.execute(
             text(
                 "INSERT INTO project_members (project_id, user_id, role) "
                 "VALUES (:p, :u, 'participant')"
@@ -316,60 +330,74 @@ def test_a_user_can_be_a_member_of_a_project_only_once(session: Session) -> None
     assert constraint_name(exc_info.value) == MEMBERSHIP_PRIMARY_KEY
 
 
-def test_a_project_has_at_most_one_owner_membership(session: Session) -> None:
-    project = add_project(session, add_user(session, "owner"))
-    second = add_user(session, "second")
+def test_a_project_has_at_most_one_owner_membership(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    project = create_project(create_user("owner"))
+    second = create_user("second")
 
     project.members.append(ProjectMember(user=second, role=ProjectRole.OWNER))
     with pytest.raises(IntegrityError) as exc_info:
-        session.flush()
+        db_session.flush()
 
     assert constraint_name(exc_info.value) == SINGLE_OWNER_INDEX
 
 
-def test_deleting_a_project_via_the_orm_deletes_members_and_documents(session: Session) -> None:
-    owner = add_user(session, "owner")
-    participant = add_user(session, "participant")
-    project = add_project(session, owner)
+def test_deleting_a_project_via_the_orm_deletes_members_and_documents(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    participant = create_user("participant")
+    project = create_project(owner)
     project.members.append(ProjectMember(user=participant, role=ProjectRole.PARTICIPANT))
-    add_document(session, project, owner)
-    add_document(session, project, participant)
-    other = add_project(session, participant, name="Other")
-    add_document(session, other, participant)
-    session.commit()
+    add_document(db_session, project, owner)
+    add_document(db_session, project, participant)
+    other = create_project(participant, name="Other")
+    add_document(db_session, other, participant)
+    db_session.commit()
 
-    session.delete(project)
-    session.commit()
+    db_session.delete(project)
+    db_session.commit()
 
-    assert session.execute(select(Project.name)).scalars().all() == ["Other"]
-    assert session.execute(select(ProjectMember.project_id)).scalars().all() == [other.id]
-    assert session.execute(select(Document.project_id)).scalars().all() == [other.id]
-    assert count(session, User) == 2
+    assert db_session.execute(select(Project.name)).scalars().all() == ["Other"]
+    assert db_session.execute(select(ProjectMember.project_id)).scalars().all() == [other.id]
+    assert db_session.execute(select(Document.project_id)).scalars().all() == [other.id]
+    assert count(db_session, User) == 2
 
 
 def test_deleting_a_project_in_the_database_cascades_to_members_and_documents(
-    session: Session,
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
 ) -> None:
-    owner = add_user(session, "owner")
-    project = add_project(session, owner)
-    add_document(session, project, owner)
-    session.commit()
+    owner = create_user("owner")
+    project = create_project(owner)
+    add_document(db_session, project, owner)
+    db_session.commit()
 
-    session.execute(delete(Project).where(Project.id == project.id))  # bypasses the ORM
-    session.commit()
+    db_session.execute(delete(Project).where(Project.id == project.id))  # bypasses the ORM
+    db_session.commit()
 
-    assert count(session, Project) == 0
-    assert count(session, ProjectMember) == 0
-    assert count(session, Document) == 0
+    assert count(db_session, Project) == 0
+    assert count(db_session, ProjectMember) == 0
+    assert count(db_session, Document) == 0
 
 
 # ---------------------------------------------------------------- documents
 
 
-def test_storage_key_is_unique(session: Session) -> None:
-    owner = add_user(session, "owner")
-    project = add_project(session, owner)
-    document = add_document(session, project, owner)
+def test_storage_key_is_unique(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    project = create_project(owner)
+    document = add_document(db_session, project, owner)
 
     duplicate = Document(
         project=project,
@@ -379,32 +407,40 @@ def test_storage_key_is_unique(session: Session) -> None:
         storage_key=document.storage_key,
         uploader=owner,
     )
-    session.add(duplicate)
+    db_session.add(duplicate)
     with pytest.raises(IntegrityError) as exc_info:
-        session.flush()
+        db_session.flush()
 
     assert constraint_name(exc_info.value) == STORAGE_KEY_UNIQUE_CONSTRAINT
 
 
-def test_document_size_cannot_be_negative(session: Session) -> None:
-    owner = add_user(session, "owner")
-    document = add_document(session, add_project(session, owner), owner)
+def test_document_size_cannot_be_negative(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    document = add_document(db_session, create_project(owner), owner)
 
     document.size = -1
     with pytest.raises(IntegrityError) as exc_info:
-        session.flush()
+        db_session.flush()
 
     assert constraint_name(exc_info.value) == "ck_documents_size_not_negative"
 
 
-def test_document_timestamps_are_set_and_updated_at_changes_on_update(session: Session) -> None:
-    owner = add_user(session, "owner")
-    document = add_document(session, add_project(session, owner), owner)
-    session.commit()
+def test_document_timestamps_are_set_and_updated_at_changes_on_update(
+    db_session: Session,
+    create_user: UserFactory,
+    create_project: ProjectFactory,
+) -> None:
+    owner = create_user("owner")
+    document = add_document(db_session, create_project(owner), owner)
+    db_session.commit()
     updated_at = document.updated_at
     assert document.created_at.tzinfo is not None
 
     document.filename = "plan-v2.pdf"
-    session.commit()
+    db_session.commit()
 
     assert document.updated_at > updated_at

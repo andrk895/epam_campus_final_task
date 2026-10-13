@@ -29,6 +29,11 @@ uv run pytest               # tests
 uv run pytest --cov         # tests with coverage
 ```
 
+Tests need a running PostgreSQL. They use the database in the `TEST_DATABASE_URL` environment
+variable (default `postgresql+psycopg://postgres:postgres@localhost:5432/pm_test`), create their
+tables in a temporary schema that is dropped afterwards, and roll back every test's changes
+(see `tests/conftest.py`).
+
 ## Database migrations
 
 Alembic is configured in `alembic.ini` (repository root); the migrations live in

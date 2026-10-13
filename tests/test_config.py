@@ -1,7 +1,5 @@
 """Unit tests for application settings (``app.core.config``)."""
 
-import os
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -17,33 +15,9 @@ from app.core.config import (
     load_settings,
 )
 
-SETTING_ENV_VARS = (
-    "DATABASE_URL",
-    "JWT_SECRET",
-    "JWT_ALGORITHM",
-    "JWT_EXPIRE_MINUTES",
-    "STORAGE_BACKEND",
-    "STORAGE_DIR",
-    "MAX_UPLOAD_SIZE_MB",
-    "ALLOWED_CONTENT_TYPES",
-)
-
-
-@pytest.fixture(autouse=True)
-def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    """Hide the developer's real environment and `.env` from every test in this module.
-
-    Removes all setting variables (in any case) from the process environment, switches to an
-    empty temporary directory so no `.env` is found, and resets the `get_settings` cache.
-    """
-    wanted = {name.upper() for name in SETTING_ENV_VARS}
-    for name in list(os.environ):
-        if name.upper() in wanted:
-            monkeypatch.delenv(name)
-    monkeypatch.chdir(tmp_path)
-    get_settings.cache_clear()
-    yield tmp_path
-    get_settings.cache_clear()
+# The setting variables of the developer's environment are removed for every test (see
+# conftest.py); `isolated_env` also hides any `.env` file by switching to an empty directory.
+pytestmark = pytest.mark.usefixtures("isolated_env")
 
 
 def test_missing_jwt_secret_fails_clearly() -> None:

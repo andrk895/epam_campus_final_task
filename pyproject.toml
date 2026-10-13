@@ -99,6 +99,8 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+# Keep pytest's temporary directories only for failed tests (passed tests leave no files behind).
+tmp_path_retention_policy = "failed"
 
 [tool.coverage.run]
 source = ["app"]

@@ -1,8 +1,6 @@
 """Tests for the application factory (``app.main``) and the health check endpoint."""
 
-import os
-from collections.abc import Iterator
-from pathlib import Path
+from collections.abc import Callable
 
 import pytest
 from fastapi import FastAPI
@@ -11,45 +9,12 @@ from uvicorn.importer import import_from_string
 
 import app.main as main_module
 from app import __version__
-from app.core.config import ConfigurationError, Settings, SettingsDep, get_settings
+from app.core.config import ConfigurationError, Settings, SettingsDep
 from app.main import API_TITLE, create_app
 
-SETTING_ENV_VARS = {
-    "DATABASE_URL",
-    "JWT_SECRET",
-    "JWT_ALGORITHM",
-    "JWT_EXPIRE_MINUTES",
-    "STORAGE_BACKEND",
-    "STORAGE_DIR",
-    "MAX_UPLOAD_SIZE_MB",
-    "ALLOWED_CONTENT_TYPES",
-}
-
-
-@pytest.fixture(autouse=True)
-def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    """Hide the developer's environment and `.env`, and reset the cached settings and app."""
-    for name in list(os.environ):
-        if name.upper() in SETTING_ENV_VARS:
-            monkeypatch.delenv(name)
-    monkeypatch.chdir(tmp_path)
-    get_settings.cache_clear()
-    main_module._get_default_app.cache_clear()
-    yield tmp_path
-    get_settings.cache_clear()
-    main_module._get_default_app.cache_clear()
-
-
-def make_settings(**overrides: object) -> Settings:
-    """Settings built only from the arguments (no environment, no `.env`)."""
-    values: dict[str, object] = {"jwt_secret": "test-secret", "_env_file": None, **overrides}
-    return Settings(**values)  # type: ignore[arg-type]
-
-
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    with TestClient(create_app(settings=make_settings())) as test_client:
-        yield test_client
+# The setting variables of the developer's environment are removed and the cached settings and
+# default app are reset for every test (see conftest.py); `isolated_env` also hides any `.env`.
+pytestmark = pytest.mark.usefixtures("isolated_env")
 
 
 def test_health_returns_ok(client: TestClient) -> None:
@@ -103,7 +68,9 @@ def _add_settings_probe(app: FastAPI) -> None:
         return {"jwt_expire_minutes": settings.jwt_expire_minutes}
 
 
-def test_settings_passed_to_create_app_are_injected() -> None:
+def test_settings_passed_to_create_app_are_injected(
+    make_settings: Callable[..., Settings],
+) -> None:
     # No JWT_SECRET in the environment: a 200 proves get_settings() itself is never called.
     settings = make_settings(jwt_expire_minutes=7)
     app = create_app(settings=settings)
