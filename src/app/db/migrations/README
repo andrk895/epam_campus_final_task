@@ -1,0 +1,2 @@
+Alembic migration environment (single database). Configuration: alembic.ini in the repository
+root. See env.py for how the database URL is chosen.

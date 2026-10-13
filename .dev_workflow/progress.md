@@ -14,3 +14,6 @@
 - 2026-10-13T17:38:26+02:00 T1.2 iter 1 programmer done (73 tests) → reviewer
 - 2026-10-13T17:40:40+02:00 T1.2 iter 1 → CHANGES_REQUESTED (role CHECK rendered twice by Alembic autogenerate → T1.3 migration would fail). T1.2 iter 2 → programmer
 - 2026-10-13T17:42:26+02:00 T1.2 iter 2 → APPROVED; verified (73 passed); committed + pushed. T1.3 iter 1 → programmer
+- 2026-10-13T17:45:19+02:00 User: parallelize. Wave A started: T1.4, T2.1, T3.1 in worktrees (../epam_campus_final_task-worktrees/<T>, private test DBs pm_test_t14/t21/t31); T1.3 continues in main checkout.
+- 2026-10-13T17:47:32+02:00 T1.3 iter 1 programmer done (82 tests; pm_app migrated to 0001) → reviewer
+- 2026-10-13T17:51:00+02:00 T1.3, T2.1, T3.1 APPROVED. User needs endpoints fast for a presentation: speed mode — api-a (auth+projects) and api-b (storage/sharing/docs) in worktrees, programmers commit per task on wip branches, batch review before merge. Live :8000 server now runs api-a worktree.

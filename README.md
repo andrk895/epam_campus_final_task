@@ -29,6 +29,20 @@ uv run pytest               # tests
 uv run pytest --cov         # tests with coverage
 ```
 
+## Database migrations
+
+Alembic is configured in `alembic.ini` (repository root); the migrations live in
+`src/app/db/migrations/versions/`. The database URL is `DATABASE_URL` from the environment or
+`.env` (the same value the app uses); override it with `-x dburl=...`.
+
+```bash
+uv run alembic upgrade head      # create / update the schema
+uv run alembic downgrade base    # drop everything again
+uv run alembic current           # show the applied revision
+uv run alembic check             # fail if the models and migrations have drifted apart
+uv run alembic revision --autogenerate --rev-id 0002 -m "describe the change"
+```
+
 ## Layout
 
 ```
