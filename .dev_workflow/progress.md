@@ -11,3 +11,6 @@
 - 2026-10-13T17:32:00+02:00 User: run until Phase 3 (inclusive), then stop
 - 2026-10-13T17:33:56+02:00 User: commit + push each verified task. Committed agents setup + T0.1/T0.2/T0.3 separately, verified clean checkout (43 passed), pushed bc7b36f..8da6955 to origin/main. Agent instructions updated.
 - 2026-10-13T17:34:13+02:00 T1.1 iter 1 → APPROVED; verified (51 passed); committed + pushed. T1.2 iter 1 → programmer
+- 2026-10-13T17:38:26+02:00 T1.2 iter 1 programmer done (73 tests) → reviewer
+- 2026-10-13T17:40:40+02:00 T1.2 iter 1 → CHANGES_REQUESTED (role CHECK rendered twice by Alembic autogenerate → T1.3 migration would fail). T1.2 iter 2 → programmer
+- 2026-10-13T17:42:26+02:00 T1.2 iter 2 → APPROVED; verified (73 passed); committed + pushed. T1.3 iter 1 → programmer
