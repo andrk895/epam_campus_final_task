@@ -7,3 +7,7 @@
 - 2026-10-13T17:25:28+02:00 T0.2 iter 1 → APPROVED (staged). T0.3 iter 1 → programmer
 - 2026-10-13T17:27:40+02:00 T0.3 iter 1 programmer done (43 tests; lazy app.main.app via __getattr__) → reviewer
 - 2026-10-13T17:29:15+02:00 T0.3 iter 1 → APPROVED (staged). Phase 0 tasks complete → phase check
+- 2026-10-13T17:29:54+02:00 Phase 0 DONE (43 tests; server on :8000; notified). T1.1 iter 1 → programmer
+- 2026-10-13T17:32:00+02:00 User: run until Phase 3 (inclusive), then stop
+- 2026-10-13T17:33:56+02:00 User: commit + push each verified task. Committed agents setup + T0.1/T0.2/T0.3 separately, verified clean checkout (43 passed), pushed bc7b36f..8da6955 to origin/main. Agent instructions updated.
+- 2026-10-13T17:34:13+02:00 T1.1 iter 1 → APPROVED; verified (51 passed); committed + pushed. T1.2 iter 1 → programmer
