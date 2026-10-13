@@ -46,9 +46,36 @@ class PermissionDenied(AppError):  # noqa: N818 (name given by the task list)
     default_detail = "You do not have permission to perform this action."
 
 
+class ConflictError(AppError):
+    """The request conflicts with the current state of a resource (``409``)."""
+
+    code = "CONFLICT"
+    default_detail = "The request conflicts with the current state of the resource."
+
+
+class LoginAlreadyExists(ConflictError):  # noqa: N818 (reads better as a domain event)
+    """Registration with a login that is already taken, compared case-insensitively (``409``)."""
+
+    code = "LOGIN_ALREADY_EXISTS"
+    default_detail = "This login is already taken."
+
+
+class AuthenticationError(AppError):
+    """The request could not be authenticated (``401``)."""
+
+    code = "NOT_AUTHENTICATED"
+    default_detail = "Not authenticated."
+
+
+class InvalidCredentials(AuthenticationError):  # noqa: N818 (reads better as a domain event)
+    """Wrong login or password; the detail never says which one (``401``)."""
+
+    code = "INVALID_CREDENTIALS"
+    default_detail = "Incorrect login or password."
+
+
 # ---------------------------------------------------------------- sharing and documents
-# Each class below carries its intended HTTP status as ``status_code``, so an exception handler
-# can map it without a separate table.
+# Statuses are mapped in ``app.api.errors.STATUS_BY_ERROR`` (unmapped classes give ``400``).
 
 
 class DocumentNotFound(NotFoundError):  # noqa: N818 (name given by the task list)
@@ -56,7 +83,6 @@ class DocumentNotFound(NotFoundError):  # noqa: N818 (name given by the task lis
 
     code = "DOCUMENT_NOT_FOUND"
     default_detail = "Document not found."
-    status_code: ClassVar[int] = 404
 
 
 class UserNotFound(NotFoundError):  # noqa: N818 (name given by the task list)
@@ -64,15 +90,13 @@ class UserNotFound(NotFoundError):  # noqa: N818 (name given by the task list)
 
     code = "USER_NOT_FOUND"
     default_detail = "User not found."
-    status_code: ClassVar[int] = 404
 
 
-class AlreadyMember(AppError):  # noqa: N818 (name given by the task list)
+class AlreadyMember(ConflictError):  # noqa: N818 (name given by the task list)
     """The invited user is already a member of the project (``409``)."""
 
     code = "ALREADY_MEMBER"
     default_detail = "The user is already a member of this project."
-    status_code: ClassVar[int] = 409
 
 
 class CannotInviteSelf(AppError):  # noqa: N818 (name given by the task list)
@@ -80,7 +104,6 @@ class CannotInviteSelf(AppError):  # noqa: N818 (name given by the task list)
 
     code = "CANNOT_INVITE_SELF"
     default_detail = "You cannot invite yourself."
-    status_code: ClassVar[int] = 400
 
 
 class CannotRemoveOwner(AppError):  # noqa: N818 (name given by the task list)
@@ -88,7 +111,6 @@ class CannotRemoveOwner(AppError):  # noqa: N818 (name given by the task list)
 
     code = "CANNOT_REMOVE_OWNER"
     default_detail = "The project owner cannot be removed."
-    status_code: ClassVar[int] = 400
 
 
 class NotAMember(NotFoundError):  # noqa: N818 (reads better at call sites)
@@ -96,7 +118,6 @@ class NotAMember(NotFoundError):  # noqa: N818 (reads better at call sites)
 
     code = "PARTICIPANT_NOT_FOUND"
     default_detail = "The user is not a participant of this project."
-    status_code: ClassVar[int] = 404
 
 
 class FileTooLarge(AppError):  # noqa: N818 (name given by the task list)
@@ -104,7 +125,6 @@ class FileTooLarge(AppError):  # noqa: N818 (name given by the task list)
 
     code = "FILE_TOO_LARGE"
     default_detail = "The file is too large."
-    status_code: ClassVar[int] = 413
 
 
 class UnsupportedFileType(AppError):  # noqa: N818 (name given by the task list)
@@ -112,7 +132,6 @@ class UnsupportedFileType(AppError):  # noqa: N818 (name given by the task list)
 
     code = "UNSUPPORTED_FILE_TYPE"
     default_detail = "The file type is not supported."
-    status_code: ClassVar[int] = 415
 
 
 class NoFilesUploaded(AppError):  # noqa: N818 (reads better at call sites)
@@ -120,4 +139,3 @@ class NoFilesUploaded(AppError):  # noqa: N818 (reads better at call sites)
 
     code = "NO_FILES"
     default_detail = "No files were uploaded."
-    status_code: ClassVar[int] = 400
