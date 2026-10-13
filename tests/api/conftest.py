@@ -10,6 +10,7 @@ import os
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
 import pytest
@@ -52,10 +53,13 @@ def database_url() -> Iterator[str]:
 
 
 @pytest.fixture
-def settings(database_url: str) -> Settings:
+def settings(database_url: str, tmp_path: Path) -> Settings:
     values: dict[str, object] = {
         "database_url": database_url,
         "jwt_secret": TEST_JWT_SECRET,
+        # Uploaded files go to a per-test temp directory, never to ./storage.
+        "storage_dir": tmp_path / "storage",
+        "max_upload_size_mb": 1,
         "_env_file": None,
     }
     return Settings(**values)  # type: ignore[arg-type]
