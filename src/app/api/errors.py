@@ -15,8 +15,10 @@ from app.core.errors import (
     AppError,
     AuthenticationError,
     ConflictError,
+    FileTooLarge,
     NotFoundError,
     PermissionDenied,
+    UnsupportedFileType,
 )
 
 STATUS_BY_ERROR: Final[Mapping[type[AppError], int]] = MappingProxyType(
@@ -25,6 +27,8 @@ STATUS_BY_ERROR: Final[Mapping[type[AppError], int]] = MappingProxyType(
         PermissionDenied: status.HTTP_403_FORBIDDEN,
         NotFoundError: status.HTTP_404_NOT_FOUND,
         ConflictError: status.HTTP_409_CONFLICT,
+        FileTooLarge: status.HTTP_413_CONTENT_TOO_LARGE,
+        UnsupportedFileType: status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
     }
 )
 

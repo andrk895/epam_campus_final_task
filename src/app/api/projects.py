@@ -16,6 +16,7 @@ from app.schemas.projects import (
 )
 from app.services import projects
 from app.services.projects import ProjectView
+from app.storage import StorageDep
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -103,7 +104,9 @@ def update_project_info(
     summary="Delete a project",
     responses={**_NOT_FOUND, **_FORBIDDEN},
 )
-def delete_project(project_id: int, user: CurrentUserDep, session: DbSessionDep) -> Response:
+def delete_project(
+    project_id: int, user: CurrentUserDep, session: DbSessionDep, storage: StorageDep
+) -> Response:
     """Delete the project with all its documents (owner only)."""
-    projects.delete_project(session, user, project_id)
+    projects.delete_project(session, user, project_id, storage=storage)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

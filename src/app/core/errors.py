@@ -72,3 +72,70 @@ class InvalidCredentials(AuthenticationError):  # noqa: N818 (reads better as a 
 
     code = "INVALID_CREDENTIALS"
     default_detail = "Incorrect login or password."
+
+
+# ---------------------------------------------------------------- sharing and documents
+# Statuses are mapped in ``app.api.errors.STATUS_BY_ERROR`` (unmapped classes give ``400``).
+
+
+class DocumentNotFound(NotFoundError):  # noqa: N818 (name given by the task list)
+    """The document doesn't exist, **or** the user can't access its project (``404``, D7)."""
+
+    code = "DOCUMENT_NOT_FOUND"
+    default_detail = "Document not found."
+
+
+class UserNotFound(NotFoundError):  # noqa: N818 (name given by the task list)
+    """No user has the given login (``404``)."""
+
+    code = "USER_NOT_FOUND"
+    default_detail = "User not found."
+
+
+class AlreadyMember(ConflictError):  # noqa: N818 (name given by the task list)
+    """The invited user is already a member of the project (``409``)."""
+
+    code = "ALREADY_MEMBER"
+    default_detail = "The user is already a member of this project."
+
+
+class CannotInviteSelf(AppError):  # noqa: N818 (name given by the task list)
+    """The owner tried to invite themselves (``400``)."""
+
+    code = "CANNOT_INVITE_SELF"
+    default_detail = "You cannot invite yourself."
+
+
+class CannotRemoveOwner(AppError):  # noqa: N818 (name given by the task list)
+    """The project owner can't be removed from the project (``400``)."""
+
+    code = "CANNOT_REMOVE_OWNER"
+    default_detail = "The project owner cannot be removed."
+
+
+class NotAMember(NotFoundError):  # noqa: N818 (reads better at call sites)
+    """The user to remove is not a participant of the project (``404``)."""
+
+    code = "PARTICIPANT_NOT_FOUND"
+    default_detail = "The user is not a participant of this project."
+
+
+class FileTooLarge(AppError):  # noqa: N818 (name given by the task list)
+    """An uploaded file exceeds the configured maximum size (``413``)."""
+
+    code = "FILE_TOO_LARGE"
+    default_detail = "The file is too large."
+
+
+class UnsupportedFileType(AppError):  # noqa: N818 (name given by the task list)
+    """An uploaded file's type is not allowed, or its content doesn't match it (``415``)."""
+
+    code = "UNSUPPORTED_FILE_TYPE"
+    default_detail = "The file type is not supported."
+
+
+class NoFilesUploaded(AppError):  # noqa: N818 (reads better at call sites)
+    """An upload request contained no files (``400``)."""
+
+    code = "NO_FILES"
+    default_detail = "No files were uploaded."

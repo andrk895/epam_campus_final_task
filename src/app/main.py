@@ -16,7 +16,7 @@ from functools import cache
 from fastapi import FastAPI
 
 from app import __version__
-from app.api import auth, health, projects
+from app.api import auth, documents, health, projects, sharing
 from app.api.errors import register_error_handlers
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
@@ -70,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(projects.router)
+    app.include_router(sharing.router)
+    app.include_router(documents.router)
     return app
 
 
