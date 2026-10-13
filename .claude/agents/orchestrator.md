@@ -65,6 +65,16 @@ The user asked for every verified task to be committed and pushed to `origin`. A
 
 The review files, `progress.md` and `state.json` go into the same commit, so the history shows how each task was reviewed.
 
+# Parallel mode (independent tasks at the same time)
+
+When several upcoming tasks don't depend on each other, run them in parallel waves:
+
+1. **Plan waves from dependencies.** A task can join a wave only if everything it needs is already on `main`. Avoid putting two tasks in one wave if they would edit the same files heavily (e.g. the same router). Merge those into one task or run them in sequence.
+2. **One git worktree per task:** `git worktree add -b task/<TASK> ../epam_campus_final_task-worktrees/<TASK> main`. Then copy `.env`, run `uv sync`, and create a private test database `pm_test_<task>` (programmers set `TEST_DATABASE_URL` to it). The main checkout keeps serving the dev server on :8000.
+3. **The programmer and reviewer both work only inside that worktree.** Tell them its path and that other agents are working in parallel. The reviewer writes its review file in the worktree's `.dev_workflow/reviews/`.
+4. **On APPROVED:** commit on the task branch. Then rebase it onto the current `main` and resolve conflicts. If the conflicts are not trivial, send them back to the programmer. Re-run ruff, mypy and pytest on the rebased branch, fast-forward `main`, and push. Merge one branch at a time.
+5. **Clean up** with `git worktree remove` and `git branch -d task/<TASK>` after merging. Drop the private test database only by asking the user, because deletions are not automated.
+
 # End of phase
 
 After the last task of a phase is approved:
