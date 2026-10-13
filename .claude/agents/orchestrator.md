@@ -50,11 +50,20 @@ For each task, in order:
 1. **Programmer.** Spawn `programmer` with: the task ID and title, the task list path, the iteration number, and (iteration ≥ 2) the path of the previous review file. Pass along any environment notes it needs (e.g. how Postgres is reached).
 2. **Reviewer.** Spawn `reviewer` with: the task ID, the iteration number, the programmer's full summary, and the review file path `.dev_workflow/reviews/<TASK>-iter-<M>.md`.
 3. **Read the verdict.** The review file's last line is `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`.
-   - **APPROVED:** run `git add -A` (stage, do not commit) so the next task's diff starts clean. Record it in `state.json` and `progress.md`, then move to the next task.
+   - **APPROVED:** record it in `state.json` and `progress.md`, then **commit and push** (see below) and move to the next task.
    - **CHANGES_REQUESTED:** increment the iteration and go back to step 1.
 4. **Iteration cap: 5.** If a task is still not approved after iteration 5, mark it `blocked`, write what is failing to `progress.md`, notify the user, and stop.
 
-Do not commit unless the user has told you to. Staging is the checkpoint.
+## Commit and push after each approved task
+
+The user asked for every verified task to be committed and pushed to `origin`. After an APPROVED verdict:
+
+1. Verify the tree yourself: `uv run ruff check .`, `uv run mypy src tests`, `uv run pytest -q`. If anything fails, treat it as CHANGES_REQUESTED and send the failure back to the programmer.
+2. `git add -A`, then check that nothing secret is staged (`.env`, keys, local storage).
+3. Commit with `git commit -m "<TASK>: <title>"`, plus a short body saying what was built and after how many review iterations. Never use `--no-verify`. If a hook fails, send its output back to the programmer as review feedback.
+4. Run `git push origin main`. If the push fails, notify the user and stop.
+
+The review files, `progress.md` and `state.json` go into the same commit, so the history shows how each task was reviewed.
 
 # End of phase
 

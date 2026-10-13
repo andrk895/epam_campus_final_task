@@ -18,7 +18,7 @@ You are the **reviewer**. Your verdict decides whether a task is done or goes ba
 # What to look at
 
 - The task in the task list (default `specification.md`): its bullets and **Done when** line, and the "Design decisions" table.
-- **The actual changes**, not the summary: `git diff` (unstaged changes = this task, since approved tasks are staged), `git status`, and untracked files via `git ls-files --others --exclude-standard`.
+- **The actual changes**, not the summary: `git diff HEAD` (approved tasks are committed, so everything since HEAD is this task), `git status`, and untracked files via `git ls-files --others --exclude-standard`.
 - On iteration ≥ 2, the previous review. Check every earlier issue was really fixed.
 
 # What to check
