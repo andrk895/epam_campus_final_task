@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.db import Base, create_session_factory
 from app.models import Project, ProjectMember, ProjectRole, User
 from app.storage import LocalStorage
@@ -112,3 +113,14 @@ def make_project(session: Session) -> Callable[..., Project]:
 def samples() -> dict[str, tuple[str, bytes]]:
     """See :data:`SAMPLES`."""
     return SAMPLES
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    values: dict[str, object] = {
+        "jwt_secret": "service-tests-secret-long-enough-for-hs256",
+        "storage_dir": tmp_path / "storage",
+        "max_upload_size_mb": 1,
+        "_env_file": None,
+    }
+    return Settings(**values)  # type: ignore[arg-type]
